@@ -3,10 +3,6 @@
 Scripts that build the datasets stored in `../data/`. For the overall
 repository layout, see the [global README](../README.md).
 
-> **Authorship note:** `idealista_scraper.py` was generated with Claude
-> (Anthropic's assistant). `lat_long_finder.py` and `plot_map.py` were **not**
-> written by Claude, so their descriptions here are based on filenames and
-> outputs. Please review and correct where needed.
 
 ## Installation
 
@@ -40,31 +36,68 @@ Run everything from inside this folder so the `../data/` paths work:
 cd data_scripts
 ```
 
-### 1. `idealista_scraper.py`: collect listings
+### 1a. `idealista_porto_municipalities.py`: full Porto district scraper (recommended)
+
+Loops through all 18 municipalities (*concelhos*) in the Porto district individually to bypass Idealista's 60-page (~1,800 listings) per-search cap. Uses UI-based `"Seguinte"` pagination, opens detail pages in a separate tab to preserve search state, and includes realistic browser headers/anti-detection tweaks.
 
 ```bash
-# small test first
-python idealista_scraper.py --max-listings 10 --output ../data/porto_district_all.csv
-
-# full run (buying)
-python idealista_scraper.py --output ../data/porto_district_all.csv
+# full Porto district run (buying - all 18 municipalities)
+python idealista_porto_municipalities.py --output ../data/porto_district_all.csv
 
 # rent instead of buy
-python idealista_scraper.py --operation arrendar --output ../data/porto_district_rent.csv
+python idealista_porto_municipalities.py --operation arrendar --output ../data/porto_district_rent.csv
 
-# single municipality
-python idealista_scraper.py --url https://www.idealista.pt/comprar-casas/matosinhos/
+# single municipality (e.g. Porto city or Vila Nova de Gaia)
+python idealista_porto_municipalities.py --municipality porto --output ../data/porto_city.csv
+python idealista_porto_municipalities.py --municipality vila-nova-de-gaia --output ../data/gaia.csv
+
+# quick test (first 2 pages of a single municipality)
+python idealista_porto_municipalities.py --municipality matosinhos --max-pages 2 --output ../data/test_matosinhos.csv
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--operation` | `comprar` | `comprar` (buy) or `arrendar` (rent) |
-| `--url` | Porto district | Start URL, e.g. one municipality |
-| `--max-pages` | 60 | Idealista caps searches at about 60 pages |
-| `--max-listings` | 0 (no limit) | Stop after N saved listings |
+| `--municipality` | All 18 | Scrape a single municipality slug (see list below) |
+| `--max-pages` | `60` | Maximum search result pages per municipality |
+| `--output` | `porto_district_all.csv` | Output CSV path (includes a `municipality` column) |
+| `--min-delay` / `--max-delay` | `12.0` / `30.0` | Random delay range (in seconds) between listing requests |
+
+**Supported `--municipality` values:**
+`porto`, `vila-nova-de-gaia`, `matosinhos`, `maia`, `gondomar`, `valongo`, `povoa-de-varzim`, `vila-do-conde`, `penafiel`, `paredes`, `santo-tirso`, `amarante`, `felgueiras`, `lousada`, `pacos-de-ferreira`, `trofa`, `marco-de-canaveses`, `baiao`.
+
+- Rows are flushed immediately after each listing, so interrupting loses nothing.
+- Re-running skips listing IDs already present in the CSV (resumable).
+- Logs go to the console and `idealista_district.log`.
+- Runs in a visible browser window (`headless=False`); if a CAPTCHA appears, solve it in the browser and press `ENTER` in the terminal to continue.
+
+### 1b. `idealista_scraper.py`: single-URL / custom search scraper
+
+Use this script if you want to scrape a specific custom search URL (such as a filtered price range or parish) with batch cool-down pauses and a `--max-listings` cap.
+
+```bash
+# small test first
+python idealista_scraper.py --max-listings 10 --output ../data/porto_district_all.csv
+
+# full run (single district search, capped at 60 pages by Idealista)
+python idealista_scraper.py --output ../data/porto_district_all.csv
+
+# rent instead of buy
+python idealista_scraper.py --operation arrendar --output ../data/porto_district_rent.csv
+
+# custom URL
+python idealista_scraper.py --url [https://www.idealista.pt/comprar-casas/matosinhos/](https://www.idealista.pt/comprar-casas/matosinhos/)
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--operation` | `comprar` | `comprar` (buy) or `arrendar` (rent) |
+| `--url` | Porto district | Start URL, e.g. one municipality or filtered search |
+| `--max-pages` | `60` | Idealista caps searches at about 60 pages |
+| `--max-listings` | `0` (no limit) | Stop after N saved listings |
 | `--output` | `idealista_porto.csv` | Output CSV path |
-| `--min-delay` / `--max-delay` | 15 / 45 | Seconds between listing requests |
-| `--batch-size` / `--batch-pause` | 10 / 300 | Long rest after N listings (seconds) |
+| `--min-delay` / `--max-delay` | `15` / `45` | Seconds between listing requests |
+| `--batch-size` / `--batch-pause` | `10` / `300` | Long rest after N listings (seconds) |
 
 - Rows are written immediately, so interrupting loses nothing.
 - Re-running skips IDs already in the CSV (resumable).
@@ -100,7 +133,7 @@ python plot_map.py
 
 | Problem | Likely fix |
 |---|---|
-| Idealista shows a verification / "are you a robot" page | You are being blocked. Stop, wait a few hours, use a different network, or use the official API. |
-| Scraped columns come back empty | Site HTML changed. Update `parse_listing_card()` / `parse_detail_page()` in `idealista_scraper.py`. |
+| Idealista shows a verification / "are you a robot" page | Solve it in the open browser window and press `ENTER` in the terminal. If it keeps recurring, stop, wait a few hours, switch networks, or use the official API. |
+| Scraper stops early after 1–2 pages | Anti-bot protection returned an empty shell or HTML selectors changed. Check `idealista_district.log` and inspect `parse_listing_cards()` / `parse_detail_page()`. |
 | `PermissionError: [WinError 5]` when saving | File open in Excel or locked by OneDrive. Close it / move the project out of OneDrive. |
 | `ModuleNotFoundError` | `pip install` the missing package inside the activated venv. |
