@@ -16,13 +16,9 @@ python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
 
-pip install pandas playwright beautifulsoup4 lxml
+pip install pandas playwright beautifulsoup4 lxml folium
 playwright install chromium
 ```
-
-`lat_long_finder.py` and `plot_map.py` may need extra packages (for example
-`geopy` for geocoding and `folium` for the map). Check the `import` lines at
-the top of each file and `pip install` anything missing.
 
 > **Windows / OneDrive:** keep the project outside OneDrive-synced folders
 > (e.g. `C:\dev\`) and close CSVs in Excel while scripts run. Otherwise saving
@@ -36,23 +32,56 @@ Run everything from inside this folder so the `../data/` paths work:
 cd data_scripts
 ```
 
-### 1a. `idealista_porto_municipalities.py`: full Porto district scraper (recommended)
+### 1. `idealista_scraper.py`: collect listings (single URL / district search)
 
-Loops through all 18 municipalities (*concelhos*) in the Porto district individually to bypass Idealista's 60-page (~1,800 listings) per-search cap. Uses UI-based `"Seguinte"` pagination, opens detail pages in a separate tab to preserve search state, and includes realistic browser headers/anti-detection tweaks.
+```bash
+# small test first
+python idealista_scraper.py --max-listings 10 --output ../data/porto_district_all.csv
+
+# full run (buying)
+python idealista_scraper.py --output ../data/porto_district_all.csv
+
+# rent instead of buy
+python idealista_scraper.py --operation arrendar --output ../data/porto_district_rent.csv
+
+# single municipality
+python idealista_scraper.py --url [https://www.idealista.pt/comprar-casas/matosinhos/](https://www.idealista.pt/comprar-casas/matosinhos/)
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--operation` | `comprar` | `comprar` (buy) or `arrendar` (rent) |
+| `--url` | Porto district | Start URL, e.g. one municipality |
+| `--max-pages` | 60 | Idealista caps searches at about 60 pages |
+| `--max-listings` | 0 (no limit) | Stop after N saved listings |
+| `--output` | `idealista_porto.csv` | Output CSV path |
+| `--min-delay` / `--max-delay` | 15 / 45 | Seconds between listing requests |
+| `--batch-size` / `--batch-pause` | 10 / 300 | Long rest after N listings (seconds) |
+
+- Rows are written immediately, so interrupting loses nothing.
+- Re-running skips IDs already in the CSV (resumable).
+- Logs go to the console and `idealista_scraper.log`.
+- Idealista's terms restrict automated access and the site uses anti-bot
+  protection, so runs may be blocked. Keep volumes small and academic. The
+  official API (https://developers.idealista.com) is the legitimate alternative.
+
+### 2. `lat_long_finder.py`: scrape & geocode listings across Porto municipalities
+
+Loops through all 18 municipalities (*concelhos*) in the Porto district individually to bypass Idealista's 60-page (~1,800 listings) per-search cap, extracting listing details along with their embedded latitude/longitude coordinates. Uses UI-based `"Seguinte"` pagination, opens detail pages in a separate tab to preserve search state, and includes realistic browser headers and anti-detection tweaks.
 
 ```bash
 # full Porto district run (buying - all 18 municipalities)
-python idealista_porto_municipalities.py --output ../data/porto_district_all.csv
+python lat_long_finder.py --output ../data/porto_district_all.csv
 
 # rent instead of buy
-python idealista_porto_municipalities.py --operation arrendar --output ../data/porto_district_rent.csv
+python lat_long_finder.py --operation arrendar --output ../data/porto_district_rent.csv
 
 # single municipality (e.g. Porto city or Vila Nova de Gaia)
-python idealista_porto_municipalities.py --municipality porto --output ../data/porto_city.csv
-python idealista_porto_municipalities.py --municipality vila-nova-de-gaia --output ../data/gaia.csv
+python lat_long_finder.py --municipality porto --output ../data/porto_city.csv
+python lat_long_finder.py --municipality vila-nova-de-gaia --output ../data/gaia.csv
 
 # quick test (first 2 pages of a single municipality)
-python idealista_porto_municipalities.py --municipality matosinhos --max-pages 2 --output ../data/test_matosinhos.csv
+python lat_long_finder.py --municipality matosinhos --max-pages 2 --output ../data/test_matosinhos.csv
 ```
 
 | Option | Default | Meaning |
@@ -60,7 +89,7 @@ python idealista_porto_municipalities.py --municipality matosinhos --max-pages 2
 | `--operation` | `comprar` | `comprar` (buy) or `arrendar` (rent) |
 | `--municipality` | All 18 | Scrape a single municipality slug (see list below) |
 | `--max-pages` | `60` | Maximum search result pages per municipality |
-| `--output` | `porto_district_all.csv` | Output CSV path (includes a `municipality` column) |
+| `--output` | `porto_district_all.csv` | Output CSV path (includes `municipality`, `latitude`, and `longitude`) |
 | `--min-delay` / `--max-delay` | `12.0` / `30.0` | Random delay range (in seconds) between listing requests |
 
 **Supported `--municipality` values:**
@@ -71,63 +100,25 @@ python idealista_porto_municipalities.py --municipality matosinhos --max-pages 2
 - Logs go to the console and `idealista_district.log`.
 - Runs in a visible browser window (`headless=False`); if a CAPTCHA appears, solve it in the browser and press `ENTER` in the terminal to continue.
 
-### 1b. `idealista_scraper.py`: single-URL / custom search scraper
+### 3. `plot_map.py`: map the listings
 
-Use this script if you want to scrape a specific custom search URL (such as a filtered price range or parish) with batch cool-down pauses and a `--max-listings` cap.
+Reads the geocoded CSV (`../data/porto_district_all.csv` or `../data/porto_district_all_geocoded.csv`) and generates an interactive Folium HTML map (`porto_district_all_geocoded_map.html`) with price/typology popups, marker clustering, and layer controls. Open the output `.html` file in any web browser.
 
 ```bash
-# small test first
-python idealista_scraper.py --max-listings 10 --output ../data/porto_district_all.csv
+# run with default input/output paths
+python plot_map.py
 
-# full run (single district search, capped at 60 pages by Idealista)
-python idealista_scraper.py --output ../data/porto_district_all.csv
-
-# rent instead of buy
-python idealista_scraper.py --operation arrendar --output ../data/porto_district_rent.csv
-
-# custom URL
-python idealista_scraper.py --url [https://www.idealista.pt/comprar-casas/matosinhos/](https://www.idealista.pt/comprar-casas/matosinhos/)
+# specify custom input CSV or output HTML map
+python plot_map.py --input ../data/porto_district_all.csv --output porto_district_all_geocoded_map.html
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--operation` | `comprar` | `comprar` (buy) or `arrendar` (rent) |
-| `--url` | Porto district | Start URL, e.g. one municipality or filtered search |
-| `--max-pages` | `60` | Idealista caps searches at about 60 pages |
-| `--max-listings` | `0` (no limit) | Stop after N saved listings |
-| `--output` | `idealista_porto.csv` | Output CSV path |
-| `--min-delay` / `--max-delay` | `15` / `45` | Seconds between listing requests |
-| `--batch-size` / `--batch-pause` | `10` / `300` | Long rest after N listings (seconds) |
+| `--input` | `../data/porto_district_all.csv` | Input CSV containing `latitude` and `longitude` columns |
+| `--output` | `porto_district_all_geocoded_map.html` | Output interactive HTML map path |
 
-- Rows are written immediately, so interrupting loses nothing.
-- Re-running skips IDs already in the CSV (resumable).
-- Logs go to the console and `idealista_scraper.log`.
-- Idealista's terms restrict automated access and the site uses anti-bot
-  protection, so runs may be blocked. Keep volumes small and academic. The
-  official API (https://developers.idealista.com) is the legitimate alternative.
-
-### 2. `lat_long_finder.py`: geocode addresses *(verify)*
-
-Reads `../data/porto_district_all.csv`, finds latitude/longitude per address,
-and writes `../data/porto_district_all_geocoded.csv`,
-`../data/porto_district_all_not_found.csv`, and `geocode_cache.json`.
-
-```bash
-python lat_long_finder.py
-```
-
-- The cache makes it resumable: re-run after an interruption and it continues.
-- Geocoding services rate-limit requests, so thousands of rows take a while.
-- Input/output paths are set in the script; confirm they point to `../data/`.
-
-### 3. `plot_map.py`: map the listings *(verify)*
-
-Reads the geocoded CSV and writes the interactive
-`porto_district_all_geocoded_map.html` in this folder. Open it in any browser.
-
-```bash
-python plot_map.py
-```
+- Automatically skips rows missing valid `latitude` or `longitude` values.
+- Includes interactive markers displaying price, area ($\text{m}^2$), typology, municipality, and direct listing URLs.
 
 ## Troubleshooting
 
@@ -135,5 +126,6 @@ python plot_map.py
 |---|---|
 | Idealista shows a verification / "are you a robot" page | Solve it in the open browser window and press `ENTER` in the terminal. If it keeps recurring, stop, wait a few hours, switch networks, or use the official API. |
 | Scraper stops early after 1–2 pages | Anti-bot protection returned an empty shell or HTML selectors changed. Check `idealista_district.log` and inspect `parse_listing_cards()` / `parse_detail_page()`. |
+| Map is empty or missing listings | Confirm the input CSV has populated `latitude` and `longitude` columns and matches the `--input` path. |
 | `PermissionError: [WinError 5]` when saving | File open in Excel or locked by OneDrive. Close it / move the project out of OneDrive. |
-| `ModuleNotFoundError` | `pip install` the missing package inside the activated venv. |
+| `ModuleNotFoundError` | `pip install` the missing package inside the activated venv (`pandas`, `playwright`, `beautifulsoup4`, `lxml`, `folium`). |
